@@ -146,16 +146,21 @@ jobs:
 
       - name: Repack patched boot.img (magiskboot, header v3)
         run: |
-          cd ref
-          "$GITHUB_WORKSPACE/tools/magiskboot" unpack boot.img
+          set -o pipefail
+          MB="$GITHUB_WORKSPACE/tools/magiskboot"
+          OUT_IMG="$GITHUB_WORKSPACE/out/boot-patched-lisa-lineage-23.2-20260922-Android16.img"
+          cd "$GITHUB_WORKSPACE/ref"
+          "$MB" unpack boot.img
           # Raw Image ONLY (see note above). magiskboot keeps it as opaque blob.
           cp "$GITHUB_WORKSPACE/out/Image" kernel
-          "$GITHUB_WORKSPACE/tools/magiskboot" repack boot.img "../out/boot-patched-lisa-lineage-23.2-20260922-Android16.img"
+          # NOTE: absolute output path — magiskboot rejects '..' in out path
+          "$MB" repack boot.img "$OUT_IMG"
+          test -f "$OUT_IMG" || { echo "FATAL: repack produced no output"; ls -la "$GITHUB_WORKSPACE/out"; exit 1; }
           # Verify final image kernel is raw ARM64 (would hang at splash otherwise)
-          mkdir -p verify && cd verify
-          "$GITHUB_WORKSPACE/tools/magiskboot" unpack "../out/boot-patched-lisa-lineage-23.2-20260922-Android16.img" >/dev/null
+          mkdir -p "$GITHUB_WORKSPACE/ref/verify" && cd "$GITHUB_WORKSPACE/ref/verify"
+          "$MB" unpack "$OUT_IMG" >/dev/null
           python3 -c "d=open('kernel','rb').read(64); assert d[56:60]==b'ARM\x64', 'repacked kernel not raw!'; print('repacked kernel OK: raw ARM64 Image')"
-          cd .. && ls -lh out/ 2>/dev/null; ls -lh ../out/
+          ls -lh "$GITHUB_WORKSPACE/out"
 
       - name: Package AnyKernel3 zip
         run: |
@@ -164,8 +169,8 @@ jobs:
           cp "$GITHUB_WORKSPACE/anykernel/anykernel.sh" ak3/anykernel.sh
           mkdir -p ak3/modules/vendor/lib/modules
           cp "$GITHUB_WORKSPACE"/out/modules/*.ko ak3/modules/vendor/lib/modules/ 2>/dev/null || true
-          cd ak3 && rm -rf .git && zip -r9 "../out/${{ env.OUT_BASENAME }}-AnyKernel3.zip" . -x "*.git*"
-          ls -lh ../out/
+          cd ak3 && rm -rf .git && zip -r9 "$GITHUB_WORKSPACE/out/${{ env.OUT_BASENAME }}-AnyKernel3.zip" . -x "*.git*"
+          ls -lh "$GITHUB_WORKSPACE/out"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
