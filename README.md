@@ -21,7 +21,7 @@ Pinned kernel rev `7ede20c8` = running `5.4.302-qgki-g7ede20c8692e` — exact ma
 
 ## NetHunter additions (`kernel/nethunter-lisa.config`)
 - **USB HID / BadUSB:** `USB_CONFIGFS` + `USB_CONFIGFS_F_HID` + `USB_G_HID`
-- **Monitor mode:** `CFG80211` + `MAC80211` + `CFG80211_WEXT` + `MAC80211_LEDS` + `NET_RADIO`
+- **Monitor mode:** `CFG80211` + `MAC80211` + `CFG80211_WEXT` + `MAC80211_LEDS` (+ `WLAN` + vendor submenus, since base disables them)
 - **External Wi-Fi (modules):** `ATH9K_HTC` (AR9271) + `RT2X00`/`RT2800USB` (RT33xx/35xx/53xx) + `RTL8187` + `RTL8192CU`
 - **Chroot:** `SYSVIPC` + `SYSVIPC_SYSCTL`
 

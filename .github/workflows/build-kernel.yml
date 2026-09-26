@@ -89,15 +89,19 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             olddefconfig
+          # NOTE: lisa boots a RAW kernel (BOARD_KERNEL_IMAGE_NAME := Image,
+          # stock KERNEL_FMT [raw]). Image.gz will NOT boot (hangs at splash).
           make O=out -j"$(nproc)" LLVM=1 LLVM_IAS=1 \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            Image.gz modules dtbs 2>&1 | tee "$GITHUB_WORKSPACE/build-kernel.log" | tail -5
+            Image Image.gz modules dtbs 2>&1 | tee "$GITHUB_WORKSPACE/build-kernel.log" | tail -5
           echo "--- outputs ---"
           ls -lh out/arch/arm64/boot/Image* out/arch/arm64/boot/dts/vendor/ 2>/dev/null | head
-          test -f out/arch/arm64/boot/Image.gz -o -f out/arch/arm64/boot/Image || { echo "FATAL: no kernel Image produced"; df -h; exit 1; }
+          test -f out/arch/arm64/boot/Image || { echo "FATAL: no raw kernel Image produced"; df -h; exit 1; }
+          # Hard gate: raw ARM64 Image magic (NOT gzip)
+          python3 -c "d=open('out/arch/arm64/boot/Image','rb').read(64); assert d[56:60]==b'ARM\x64', 'kernel is not raw ARM64 Image!'; print('kernel format OK: raw ARM64 Image')"
 
       - name: Upload build log (always)
         if: always()
@@ -112,7 +116,8 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/out/modules"
           find out -name "*.ko" | while read ko; do cp "$ko" "$GITHUB_WORKSPACE/out/modules/"; done
           ls "$GITHUB_WORKSPACE/out/modules"
-          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/out/" 2>/dev/null || cp out/arch/arm64/boot/Image "$GITHUB_WORKSPACE/out/"
+          cp out/arch/arm64/boot/Image "$GITHUB_WORKSPACE/out/"
+          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/out/"
 
       - name: Download reference boot.img (direct)
         run: |
@@ -143,14 +148,19 @@ jobs:
         run: |
           cd ref
           "$GITHUB_WORKSPACE/tools/magiskboot" unpack boot.img
-          cp "$GITHUB_WORKSPACE/out/Image.gz" kernel 2>/dev/null || cp "$GITHUB_WORKSPACE/out/Image" kernel
+          # Raw Image ONLY (see note above). magiskboot keeps it as opaque blob.
+          cp "$GITHUB_WORKSPACE/out/Image" kernel
           "$GITHUB_WORKSPACE/tools/magiskboot" repack boot.img "../out/boot-patched-lisa-lineage-23.2-20260922-Android16.img"
-          ls -lh ../out/
+          # Verify final image kernel is raw ARM64 (would hang at splash otherwise)
+          mkdir -p verify && cd verify
+          "$GITHUB_WORKSPACE/tools/magiskboot" unpack "../out/boot-patched-lisa-lineage-23.2-20260922-Android16.img" >/dev/null
+          python3 -c "d=open('kernel','rb').read(64); assert d[56:60]==b'ARM\x64', 'repacked kernel not raw!'; print('repacked kernel OK: raw ARM64 Image')"
+          cd .. && ls -lh out/ 2>/dev/null; ls -lh ../out/
 
       - name: Package AnyKernel3 zip
         run: |
           git clone --depth 1 https://github.com/osm0sis/AnyKernel3.git ak3
-          cp "$GITHUB_WORKSPACE"/out/Image* ak3/ 2>/dev/null || true
+          cp "$GITHUB_WORKSPACE/out/Image" ak3/Image
           cp "$GITHUB_WORKSPACE/anykernel/anykernel.sh" ak3/anykernel.sh
           mkdir -p ak3/modules/vendor/lib/modules
           cp "$GITHUB_WORKSPACE"/out/modules/*.ko ak3/modules/vendor/lib/modules/ 2>/dev/null || true
