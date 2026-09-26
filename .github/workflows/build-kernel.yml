@@ -36,12 +36,7 @@ jobs:
             build-essential crossbuild-essential-arm64 \
             python3 libncurses-dev git zip unzip cpio curl wget magiskboot 2>/dev/null || \
           sudo apt-get install -y bc bison flex libssl-dev libelf-dev \
-            build-essential python3 libncurses-dev git zip unzip cpio curl wget
-          # magiskboot fallback: download from Magisk releases if apt lacks it
-          if ! command -v magiskboot >/dev/null; then
-            echo "magiskboot not in apt, fetching static binary..."
-            curl -sL https://raw.githubusercontent.com/topjohnwu/Magisk/master/docs/tools/magiskboot -o /tmp/magiskboot || true
-          fi
+            build-essential python3 libncurses-dev git zip unzip cpio curl wget file
 
       - name: Clone kernel at pinned revision
         run: |
@@ -127,13 +122,29 @@ jobs:
           ls -lh boot.img
           test -f boot.img || { echo "FATAL: boot.img download failed"; exit 1; }
 
+      - name: Install magiskboot (x86_64, from official Magisk APK)
+        run: |
+          mkdir -p tools && cd tools
+          if command -v magiskboot >/dev/null; then
+            cp "$(command -v magiskboot)" ./magiskboot
+          else
+            MTAG=$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+            echo "Magisk tag: $MTAG"
+            curl -sL --fail -o magisk.apk "https://github.com/topjohnwu/Magisk/releases/download/${MTAG}/Magisk-${MTAG}.apk"
+            unzip -l magisk.apk | grep -i magiskboot
+            unzip -o -j magisk.apk "lib/x86_64/libmagiskboot.so" -d .
+            mv libmagiskboot.so magiskboot
+            rm -f magisk.apk
+          fi
+          chmod +x magiskboot
+          file magiskboot
+
       - name: Repack patched boot.img (magiskboot, header v3)
         run: |
           cd ref
-          magiskboot unpack boot.img || /tmp/magiskboot unpack boot.img
+          "$GITHUB_WORKSPACE/tools/magiskboot" unpack boot.img
           cp "$GITHUB_WORKSPACE/out/Image.gz" kernel 2>/dev/null || cp "$GITHUB_WORKSPACE/out/Image" kernel
-          magiskboot repack boot.img "../out/boot-patched-lisa-lineage-23.2-20260922-Android16.img" || \
-            /tmp/magiskboot repack boot.img "../out/boot-patched-lisa-lineage-23.2-20260922-Android16.img"
+          "$GITHUB_WORKSPACE/tools/magiskboot" repack boot.img "../out/boot-patched-lisa-lineage-23.2-20260922-Android16.img"
           ls -lh ../out/
 
       - name: Package AnyKernel3 zip
