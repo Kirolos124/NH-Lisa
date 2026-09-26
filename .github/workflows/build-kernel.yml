@@ -7,10 +7,14 @@ on:
         description: 'Kernel revision to build (default = pinned, matches LOS 23.2-20260922)'
         required: false
         default: '7ede20c8692e0e0fc044754429e33cfd1d75c40d'
-      los_zip_url:
-        description: 'LineageOS nightly zip URL (for reference boot.img)'
+      los_boot_url:
+        description: 'Reference stock boot.img URL (direct, no extraction needed)'
         required: false
-        default: 'https://mirrorbits.lineageos.org/full/lisa/20260922/lineage-23.2-20260922-nightly-lisa-signed.zip'
+        default: 'https://mirrorbits.lineageos.org/full/lisa/20260922/boot.img'
+      los_boot_sha256:
+        description: 'SHA256 of the reference boot.img above'
+        required: false
+        default: '8d702f47e4e27ddf0c3066d65b68052833c28eb250db7598d41838916ad53c72'
 
 env:
   OUT_BASENAME: NetHunter-Kernel-lisa-lineage-23.2-20260922-Android16
@@ -115,20 +119,13 @@ jobs:
           ls "$GITHUB_WORKSPACE/out/modules"
           cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/out/" 2>/dev/null || cp out/arch/arm64/boot/Image "$GITHUB_WORKSPACE/out/"
 
-      - name: Download reference LOS zip + extract boot.img
+      - name: Download reference boot.img (direct)
         run: |
           mkdir -p ref && cd ref
-          curl -sL "${{ inputs.los_zip_url }}" -o lineage.zip
-          # LineageOS A/B zips ship payload.bin (no top-level boot.img)
-          unzip -o lineage.zip payload.bin
-          ls -lh payload.bin
-          curl -sL --fail -o pdg.tgz "https://github.com/ssut/payload-dumper-go/releases/download/1.3.0/payload-dumper-go_1.3.0_linux_amd64.tar.gz" || \
-          curl -sL --fail -o pdg.tgz "https://github.com/ssut/payload-dumper-go/releases/download/1.2.2/payload-dumper-go_1.2.2_linux_amd64.tar.gz"
-          tar -xzf pdg.tgz payload-dumper-go
-          ./payload-dumper-go -p boot -o . payload.bin
-          rm -f lineage.zip payload.bin pdg.tgz
+          curl -sL "${{ inputs.los_boot_url }}" -o boot.img
+          echo "${{ inputs.los_boot_sha256 }}  boot.img" | sha256sum -c -
           ls -lh boot.img
-          test -f boot.img || { echo "FATAL: boot.img not extracted"; exit 1; }
+          test -f boot.img || { echo "FATAL: boot.img download failed"; exit 1; }
 
       - name: Repack patched boot.img (magiskboot, header v3)
         run: |
