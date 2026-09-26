@@ -1,0 +1,121 @@
+name: Build NetHunter Kernel (lisa)
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_rev:
+        description: 'Kernel revision to build (default = pinned, matches LOS 23.2-20260922)'
+        required: false
+        default: '7ede20c8692e0e0fc044754429e33cfd1d75c40d'
+      los_zip_url:
+        description: 'LineageOS nightly zip URL (for reference boot.img)'
+        required: false
+        default: 'https://mirrorbits.lineageos.org/full/lisa/20260922/lineage-23.2-20260922-nightly-lisa-signed.zip'
+
+env:
+  OUT_BASENAME: NetHunter-Kernel-lisa-lineage-23.2-20260922-Android16
+  KERNEL_REPO: https://github.com/LineageOS/android_kernel_xiaomi_sm8350.git
+  KERNEL_BRANCH: lineage-23.2
+  ARCH: arm64
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout NH-Lisa repo
+        uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libssl-dev libelf-dev \
+            build-essential crossbuild-essential-arm64 \
+            python3 libncurses-dev git zip unzip cpio curl wget magiskboot 2>/dev/null || \
+          sudo apt-get install -y bc bison flex libssl-dev libelf-dev \
+            build-essential python3 libncurses-dev git zip unzip cpio curl wget
+          # magiskboot fallback: download from Magisk releases if apt lacks it
+          if ! command -v magiskboot >/dev/null; then
+            echo "magiskboot not in apt, fetching static binary..."
+            curl -sL https://raw.githubusercontent.com/topjohnwu/Magisk/master/docs/tools/magiskboot -o /tmp/magiskboot || true
+          fi
+
+      - name: Clone kernel at pinned revision
+        run: |
+          KREV="${{ inputs.kernel_rev }}"
+          git clone --branch "$KERNEL_BRANCH" "$KERNEL_REPO" kernel
+          cd kernel
+          git fetch --depth 1 origin "$KREV" || git fetch origin "$KREV"
+          git checkout "$KREV"
+          git rev-parse --short HEAD
+          uname -a || true
+
+      - name: Clone Clang prebuilt (r416183b, per build-manifest.xml)
+        run: |
+          git clone --depth 1 --branch lineage-20.0 \
+            https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b.git \
+            clang-r416183b
+          ls clang-r416183b/bin | head
+
+      - name: Merge defconfig chain + NetHunter fragment
+        run: |
+          cd kernel
+          ./scripts/kconfig/merge_config.sh \
+            arch/arm64/configs/vendor/lahaina-qgki_defconfig \
+            arch/arm64/configs/vendor/debugfs.config \
+            arch/arm64/configs/vendor/xiaomi_QGKI.config \
+            arch/arm64/configs/vendor/lisa_QGKI.config \
+            ../kernel/nethunter-lisa.config
+          grep -E "CONFIG_USB_G_HID|CONFIG_USB_CONFIGFS_F_HID|CONFIG_ATH9K_HTC|CONFIG_RT2800USB|CONFIG_RTL8187|CONFIG_RTL8192CU|CONFIG_SYSVIPC|CONFIG_CFG80211|CONFIG_MAC80211" .config
+
+      - name: Build kernel (Image + modules + dtb)
+        run: |
+          cd kernel
+          export PATH="$GITHUB_WORKSPACE/clang-r416183b/bin:$PATH"
+          export ARCH=arm64
+          make -j"$(nproc)" LLVM=1 \
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            Image.gz modules dtbs 2>&1 | tail -30
+          ls -lh arch/arm64/boot/Image* arch/arm64/boot/dts/vendor/*.dtb 2>/dev/null | head
+
+      - name: Collect modules
+        run: |
+          cd kernel
+          mkdir -p "$GITHUB_WORKSPACE/out/modules"
+          find . -name "*.ko" | while read ko; do cp "$ko" "$GITHUB_WORKSPACE/out/modules/"; done
+          ls "$GITHUB_WORKSPACE/out/modules"
+          cp arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/out/" 2>/dev/null || cp arch/arm64/boot/Image "$GITHUB_WORKSPACE/out/"
+
+      - name: Download reference LOS zip + extract boot.img
+        run: |
+          mkdir -p ref && cd ref
+          curl -sL "${{ inputs.los_zip_url }}" -o lineage.zip
+          unzip -o lineage.zip boot.img
+          ls -lh boot.img
+
+      - name: Repack patched boot.img (magiskboot, header v3)
+        run: |
+          cd ref
+          magiskboot unpack boot.img || /tmp/magiskboot unpack boot.img
+          cp "$GITHUB_WORKSPACE/out/Image.gz" kernel 2>/dev/null || cp "$GITHUB_WORKSPACE/out/Image" kernel
+          magiskboot repack boot.img "../out/boot-patched-lisa-lineage-23.2-20260922-Android16.img" || \
+            /tmp/magiskboot repack boot.img "../out/boot-patched-lisa-lineage-23.2-20260922-Android16.img"
+          ls -lh ../out/
+
+      - name: Package AnyKernel3 zip
+        run: |
+          git clone --depth 1 https://github.com/osm0sis/AnyKernel3.git ak3
+          cp "$GITHUB_WORKSPACE"/out/Image* ak3/ 2>/dev/null || true
+          cp "$GITHUB_WORKSPACE/anykernel/anykernel.sh" ak3/anykernel.sh
+          mkdir -p ak3/modules/vendor/lib/modules
+          cp "$GITHUB_WORKSPACE"/out/modules/*.ko ak3/modules/vendor/lib/modules/ 2>/dev/null || true
+          cd ak3 && rm -rf .git && zip -r9 "../out/${{ env.OUT_BASENAME }}-AnyKernel3.zip" . -x "*.git*"
+          ls -lh ../out/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.OUT_BASENAME }}
+          path: out/
