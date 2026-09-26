@@ -61,13 +61,17 @@ jobs:
       - name: Merge defconfig chain + NetHunter fragment
         run: |
           cd kernel-src
-          ./scripts/kconfig/merge_config.sh \
+          # -O keeps ALL generated files inside out/ so the srctree stays
+          # clean (required for O= builds; also avoids tripping over the
+          # focaltech_3680 Makefile which breaks make mrproper/clean).
+          mkdir -p out
+          ./scripts/kconfig/merge_config.sh -O out \
             arch/arm64/configs/vendor/lahaina-qgki_defconfig \
             arch/arm64/configs/vendor/debugfs.config \
             arch/arm64/configs/vendor/xiaomi_QGKI.config \
             arch/arm64/configs/vendor/lisa_QGKI.config \
             ../kernel/nethunter-lisa.config
-          grep -E "CONFIG_USB_G_HID|CONFIG_USB_CONFIGFS_F_HID|CONFIG_ATH9K_HTC|CONFIG_RT2800USB|CONFIG_RTL8187|CONFIG_RTL8192CU|CONFIG_SYSVIPC|CONFIG_CFG80211|CONFIG_MAC80211" .config
+          grep -E "CONFIG_USB_G_HID|CONFIG_USB_CONFIGFS_F_HID|CONFIG_ATH9K_HTC|CONFIG_RT2800USB|CONFIG_RTL8187|CONFIG_RTL8192CU|CONFIG_SYSVIPC|CONFIG_CFG80211|CONFIG_MAC80211" out/.config
 
       - name: Build kernel (Image + modules + dtb)
         run: |
@@ -79,13 +83,7 @@ jobs:
           # LOS builds out-of-srctree (O=); this activates the
           # -I$(srctree)/$(src) flags needed by in-subdir trace headers
           # (walt / rmnet / hid trace.o). Matches LineageOS kernel.mk.
-          # merge_config.sh dirties the srctree (runs alldefconfig); O= builds
-          # require a clean tree, so save .config, mrproper, then build.
-          # (LineageOS kernel.mk also runs mrproper before building.)
-          cp .config "$GITHUB_WORKSPACE/merged.config"
-          make mrproper
-          mkdir -p out
-          cp "$GITHUB_WORKSPACE/merged.config" out/.config
+          # (Srctree is clean thanks to merge -O above, so no mrproper.)
           make O=out -j"$(nproc)" LLVM=1 LLVM_IAS=1 \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
