@@ -76,15 +76,26 @@ jobs:
           export PATH="$GITHUB_WORKSPACE/clang-r416183b/bin:$PATH"
           export ARCH=arm64
           df -h "$GITHUB_WORKSPACE" | tail -2
-          make -j"$(nproc)" LLVM=1 LLVM_IAS=1 \
+          # LOS builds out-of-srctree (O=); this activates the
+          # -I$(srctree)/$(src) flags needed by in-subdir trace headers
+          # (walt / rmnet / hid trace.o). Matches LineageOS kernel.mk.
+          mkdir -p out
+          cp .config out/.config
+          make O=out -j"$(nproc)" LLVM=1 LLVM_IAS=1 \
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            olddefconfig
+          make O=out -j"$(nproc)" LLVM=1 LLVM_IAS=1 \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             Image.gz modules dtbs 2>&1 | tee "$GITHUB_WORKSPACE/build-kernel.log" | tail -5
           echo "--- outputs ---"
-          ls -lh arch/arm64/boot/Image* arch/arm64/boot/dts/vendor/ 2>/dev/null | head
-          test -f arch/arm64/boot/Image.gz -o -f arch/arm64/boot/Image || { echo "FATAL: no kernel Image produced"; df -h; exit 1; }
+          ls -lh out/arch/arm64/boot/Image* out/arch/arm64/boot/dts/vendor/ 2>/dev/null | head
+          test -f out/arch/arm64/boot/Image.gz -o -f out/arch/arm64/boot/Image || { echo "FATAL: no kernel Image produced"; df -h; exit 1; }
 
       - name: Upload build log (always)
         if: always()
@@ -97,9 +108,9 @@ jobs:
         run: |
           cd kernel-src
           mkdir -p "$GITHUB_WORKSPACE/out/modules"
-          find . -name "*.ko" | while read ko; do cp "$ko" "$GITHUB_WORKSPACE/out/modules/"; done
+          find out -name "*.ko" | while read ko; do cp "$ko" "$GITHUB_WORKSPACE/out/modules/"; done
           ls "$GITHUB_WORKSPACE/out/modules"
-          cp arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/out/" 2>/dev/null || cp arch/arm64/boot/Image "$GITHUB_WORKSPACE/out/"
+          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/out/" 2>/dev/null || cp out/arch/arm64/boot/Image "$GITHUB_WORKSPACE/out/"
 
       - name: Download reference LOS zip + extract boot.img
         run: |
