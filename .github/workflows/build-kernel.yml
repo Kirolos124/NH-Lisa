@@ -119,8 +119,16 @@ jobs:
         run: |
           mkdir -p ref && cd ref
           curl -sL "${{ inputs.los_zip_url }}" -o lineage.zip
-          unzip -o lineage.zip boot.img
+          # LineageOS A/B zips ship payload.bin (no top-level boot.img)
+          unzip -o lineage.zip payload.bin
+          ls -lh payload.bin
+          curl -sL --fail -o pdg.tgz "https://github.com/ssut/payload-dumper-go/releases/download/1.3.0/payload-dumper-go_1.3.0_linux_amd64.tar.gz" || \
+          curl -sL --fail -o pdg.tgz "https://github.com/ssut/payload-dumper-go/releases/download/1.2.2/payload-dumper-go_1.2.2_linux_amd64.tar.gz"
+          tar -xzf pdg.tgz payload-dumper-go
+          ./payload-dumper-go -p boot -o . payload.bin
+          rm -f lineage.zip payload.bin pdg.tgz
           ls -lh boot.img
+          test -f boot.img || { echo "FATAL: boot.img not extracted"; exit 1; }
 
       - name: Repack patched boot.img (magiskboot, header v3)
         run: |
