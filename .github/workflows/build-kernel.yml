@@ -42,12 +42,12 @@ jobs:
       - name: Clone kernel at pinned revision
         run: |
           KREV="${{ inputs.kernel_rev }}"
-          git clone --branch "$KERNEL_BRANCH" "$KERNEL_REPO" kernel-src
+          git clone --depth 1 --branch "$KERNEL_BRANCH" "$KERNEL_REPO" kernel-src
           cd kernel-src
-          git fetch --depth 1 origin "$KREV" || git fetch origin "$KREV"
+          git fetch --depth 1 origin "$KREV"
           git checkout "$KREV"
           git rev-parse --short HEAD
-          uname -a || true
+          df -h "$GITHUB_WORKSPACE" | tail -2
 
       - name: Clone Clang prebuilt (r416183b, per build-manifest.xml)
         run: |
@@ -69,16 +69,27 @@ jobs:
 
       - name: Build kernel (Image + modules + dtb)
         run: |
+          set -o pipefail
           cd kernel-src
           export PATH="$GITHUB_WORKSPACE/clang-r416183b/bin:$PATH"
           export ARCH=arm64
+          df -h "$GITHUB_WORKSPACE" | tail -2
           make -j"$(nproc)" LLVM=1 \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            Image.gz modules dtbs 2>&1 | tail -30
-          ls -lh arch/arm64/boot/Image* arch/arm64/boot/dts/vendor/*.dtb 2>/dev/null | head
+            Image.gz modules dtbs 2>&1 | tee "$GITHUB_WORKSPACE/build-kernel.log" | tail -5
+          echo "--- outputs ---"
+          ls -lh arch/arm64/boot/Image* arch/arm64/boot/dts/vendor/ 2>/dev/null | head
+          test -f arch/arm64/boot/Image.gz -o -f arch/arm64/boot/Image || { echo "FATAL: no kernel Image produced"; df -h; exit 1; }
+
+      - name: Upload build log (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-kernel-log
+          path: build-kernel.log
 
       - name: Collect modules
         run: |
