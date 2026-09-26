@@ -46,8 +46,12 @@ jobs:
           git fetch --depth 1 origin "$KREV"
           git checkout "$KREV"
           git rev-parse --short HEAD
-          echo "=== applying NH-Lisa patches ==="
-          git apply --verbose "$GITHUB_WORKSPACE"/patches/*.patch
+          # NOTE: tree must stay CLEAN (no patches): scripts/setlocalversion
+          # appends -dirty to uname -r on dirty trees, and stock vendor_dlkm
+          # modules (display etc.) refuse to load on a -dirty kernel
+          # (vermagic mismatch) -> permanent splash hang. walt/trace.o builds
+          # fine under O= without patches (official -I flags active).
+          git status --short | head -5
           df -h "$GITHUB_WORKSPACE" | tail -2
 
       - name: Clone Clang prebuilt (r416183b, per build-manifest.xml)
@@ -102,6 +106,9 @@ jobs:
           test -f out/arch/arm64/boot/Image || { echo "FATAL: no raw kernel Image produced"; df -h; exit 1; }
           # Hard gate: raw ARM64 Image magic (NOT gzip)
           python3 -c "d=open('out/arch/arm64/boot/Image','rb').read(64); assert d[56:60]==b'ARM\x64', 'kernel is not raw ARM64 Image!'; print('kernel format OK: raw ARM64 Image')"
+          # Hard gate: uname -r MUST match stock exactly (no -dirty) or stock
+          # vendor_dlkm modules (display!) refuse to load -> splash hang
+          python3 -c "import re; d=open('out/arch/arm64/boot/Image','rb').read(); v=re.search(rb'Linux version (5\.4\.302\S*)',d).group(1).decode(); print('kernel version:',v); assert v=='5.4.302-qgki-g7ede20c8692e', f'version mismatch: {v}'"
 
       - name: Upload build log (always)
         if: always()
