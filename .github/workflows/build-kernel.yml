@@ -54,12 +54,17 @@ jobs:
           git status --short | head -5
           df -h "$GITHUB_WORKSPACE" | tail -2
 
-      - name: Clone Clang prebuilt (r416183b, per build-manifest.xml)
+      - name: Clone Clang prebuilt (AOSP Android 16 host, like stock clang 21)
         run: |
-          git clone --depth 1 --branch lineage-20.0 \
-            https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b.git \
-            clang-r416183b
-          ls clang-r416183b/bin | head
+          git clone --depth 1 --branch android-16.0.0_r4 \
+            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
+            clang-aosp
+          # repo holds versioned clang-*/ dirs; use the newest
+          NEWEST=$(ls -d clang-aosp/clang-* | sort -V | tail -1)
+          echo "Using: $NEWEST"
+          ln -sfn "$PWD/$NEWEST/bin" clang-cc
+          ls clang-cc/ | head
+          clang-cc/clang --version | head -2
 
       - name: Merge defconfig chain + NetHunter fragment
         run: |
@@ -80,7 +85,7 @@ jobs:
         run: |
           set -o pipefail
           cd kernel-src
-          export PATH="$GITHUB_WORKSPACE/clang-r416183b/bin:$PATH"
+          export PATH="$GITHUB_WORKSPACE/clang-cc:$PATH"
           export ARCH=arm64
           df -h "$GITHUB_WORKSPACE" | tail -2
           # LOS builds out-of-srctree (O=); this activates the
@@ -109,6 +114,8 @@ jobs:
           # Hard gate: uname -r MUST match stock exactly (no -dirty) or stock
           # vendor_dlkm modules (display!) refuse to load -> splash hang
           python3 -c "import re; d=open('out/arch/arm64/boot/Image','rb').read(); v=re.search(rb'Linux version (5\.4\.302\S*)',d).group(1).decode(); print('kernel version:',v); assert v=='5.4.302-qgki-g7ede20c8692e', f'version mismatch: {v}'"
+          # Hard gate: modern clang like stock (NOT clang 12)
+          python3 -c "d=open('out/arch/arm64/boot/Image','rb').read(); assert b'clang version 2' in d, 'toolchain too old!'; print('toolchain OK: modern clang')"
 
       - name: Upload build log (always)
         if: always()
@@ -151,18 +158,35 @@ jobs:
           chmod +x magiskboot
           file magiskboot
 
-      - name: Repack patched boot.img (magiskboot, header v3)
+      - name: Repack patched boot.img (raw Image + byte-exact stock ramdisk)
         run: |
           set -o pipefail
           MB="$GITHUB_WORKSPACE/tools/magiskboot"
           OUT_IMG="$GITHUB_WORKSPACE/out/boot-patched-lisa-lineage-23.2-20260922-Android16.img"
           cd "$GITHUB_WORKSPACE/ref"
-          "$MB" unpack boot.img
-          # Raw Image ONLY (see note above). magiskboot keeps it as opaque blob.
-          cp "$GITHUB_WORKSPACE/out/Image" kernel
-          # NOTE: absolute output path — magiskboot rejects '..' in out path
-          "$MB" repack boot.img "$OUT_IMG"
-          test -f "$OUT_IMG" || { echo "FATAL: repack produced no output"; ls -la "$GITHUB_WORKSPACE/out"; exit 1; }
+          # Manual v3 repack: stock header (kernel_size updated) + our raw
+          # Image + STOCK ramdisk bytes untouched (magiskboot normalizes the
+          # ramdisk on repack; byte-exact avoids that whole variable).
+          python3 - "$GITHUB_WORKSPACE/out/Image" boot.img "$OUT_IMG" <<'PYEOF'
+          import struct, sys
+          img, ref, outp = sys.argv[1], sys.argv[2], sys.argv[3]
+          k = open(img, 'rb').read()
+          r = open(ref, 'rb').read()
+          assert r[:8] == b'ANDROID!', 'ref not boot img'
+          assert r[40:44] == struct.pack('<I', 3), 'not header v3'
+          hdr = bytearray(r[:1580])
+          rk = struct.unpack('<I', r[8:12])[0]
+          rr = struct.unpack('<I', r[12:16])[0]
+          struct.pack_into('<I', hdr, 8, len(k))
+          ko = 4096 + ((rk + 4095) // 4096) * 4096
+          assert r[ko:ko+2] == b'\x1f\x8b', 'stock ramdisk not gzip?!'
+          blob = bytes(hdr) + b'\0' * (4096 - 1580) + k
+          blob += b'\0' * ((4096 - (len(k) % 4096)) % 4096)
+          blob += r[ko:ko+rr]
+          open(outp, 'wb').write(blob)
+          print(f'wrote {outp}: kernel={len(k)} ramdisk={rr} total={len(blob)}')
+          PYEOF
+          test -f "$OUT_IMG" || { echo "FATAL: repack produced no output"; exit 1; }
           # Verify final image kernel is raw ARM64 (would hang at splash otherwise)
           mkdir -p "$GITHUB_WORKSPACE/ref/verify" && cd "$GITHUB_WORKSPACE/ref/verify"
           "$MB" unpack "$OUT_IMG" >/dev/null
