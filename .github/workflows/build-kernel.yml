@@ -47,6 +47,8 @@ jobs:
           git fetch --depth 1 origin "$KREV"
           git checkout "$KREV"
           git rev-parse --short HEAD
+          echo "=== applying NH-Lisa patches ==="
+          git apply --verbose "$GITHUB_WORKSPACE"/patches/*.patch
           df -h "$GITHUB_WORKSPACE" | tail -2
 
       - name: Clone Clang prebuilt (r416183b, per build-manifest.xml)
@@ -74,10 +76,6 @@ jobs:
           export PATH="$GITHUB_WORKSPACE/clang-r416183b/bin:$PATH"
           export ARCH=arm64
           df -h "$GITHUB_WORKSPACE" | tail -2
-          echo "=== DEBUG walt trace (temporary) ==="
-          ls kernel/sched/walt/
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- V=1 kernel/sched/walt/trace.o || true
-          echo "=== END DEBUG ==="
           make -j"$(nproc)" LLVM=1 LLVM_IAS=1 \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
