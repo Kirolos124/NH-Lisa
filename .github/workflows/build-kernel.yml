@@ -79,8 +79,13 @@ jobs:
           # LOS builds out-of-srctree (O=); this activates the
           # -I$(srctree)/$(src) flags needed by in-subdir trace headers
           # (walt / rmnet / hid trace.o). Matches LineageOS kernel.mk.
+          # merge_config.sh dirties the srctree (runs alldefconfig); O= builds
+          # require a clean tree, so save .config, mrproper, then build.
+          # (LineageOS kernel.mk also runs mrproper before building.)
+          cp .config "$GITHUB_WORKSPACE/merged.config"
+          make mrproper
           mkdir -p out
-          cp .config out/.config
+          cp "$GITHUB_WORKSPACE/merged.config" out/.config
           make O=out -j"$(nproc)" LLVM=1 LLVM_IAS=1 \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
