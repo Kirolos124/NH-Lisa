@@ -42,8 +42,8 @@ jobs:
       - name: Clone kernel at pinned revision
         run: |
           KREV="${{ inputs.kernel_rev }}"
-          git clone --branch "$KERNEL_BRANCH" "$KERNEL_REPO" kernel
-          cd kernel
+          git clone --branch "$KERNEL_BRANCH" "$KERNEL_REPO" kernel-src
+          cd kernel-src
           git fetch --depth 1 origin "$KREV" || git fetch origin "$KREV"
           git checkout "$KREV"
           git rev-parse --short HEAD
@@ -58,7 +58,7 @@ jobs:
 
       - name: Merge defconfig chain + NetHunter fragment
         run: |
-          cd kernel
+          cd kernel-src
           ./scripts/kconfig/merge_config.sh \
             arch/arm64/configs/vendor/lahaina-qgki_defconfig \
             arch/arm64/configs/vendor/debugfs.config \
@@ -69,7 +69,7 @@ jobs:
 
       - name: Build kernel (Image + modules + dtb)
         run: |
-          cd kernel
+          cd kernel-src
           export PATH="$GITHUB_WORKSPACE/clang-r416183b/bin:$PATH"
           export ARCH=arm64
           make -j"$(nproc)" LLVM=1 \
@@ -82,7 +82,7 @@ jobs:
 
       - name: Collect modules
         run: |
-          cd kernel
+          cd kernel-src
           mkdir -p "$GITHUB_WORKSPACE/out/modules"
           find . -name "*.ko" | while read ko; do cp "$ko" "$GITHUB_WORKSPACE/out/modules/"; done
           ls "$GITHUB_WORKSPACE/out/modules"
