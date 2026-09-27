@@ -182,6 +182,12 @@ jobs:
           blob = bytes(hdr) + b'\0' * (4096 - 1580) + k
           blob += b'\0' * ((4096 - (len(k) % 4096)) % 4096)
           blob += r[ko:ko+rr]
+          # Append stock tail (zero padding + AVB vbmeta footer) so the layout
+          # matches stock exactly. Without it the APatch app's internal
+          # magiskboot segfaults on repack (exit 139). Footer lands at EOF,
+          # padding absorbs the kernel size difference. APatch fixes up AVB
+          # itself during patching (proven: stock+APatch boots on orange).
+          blob += r[ko+rr:]
           open(outp, 'wb').write(blob)
           print(f'wrote {outp}: kernel={len(k)} ramdisk={rr} total={len(blob)}')
           PYEOF
