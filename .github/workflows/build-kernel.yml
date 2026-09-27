@@ -15,6 +15,10 @@ on:
         description: 'SHA256 of the reference boot.img above'
         required: false
         default: '8d702f47e4e27ddf0c3066d65b68052833c28eb250db7598d41838916ad53c72'
+      use_fragment:
+        description: 'Include NetHunter fragment (false = pristine stock-equivalent bisect build)'
+        required: false
+        default: 'false'
 
 env:
   OUT_BASENAME: NetHunter-Kernel-lisa-lineage-23.2-20260922-Android16
@@ -85,8 +89,8 @@ jobs:
             arch/arm64/configs/vendor/debugfs.config \
             arch/arm64/configs/vendor/xiaomi_QGKI.config \
             arch/arm64/configs/vendor/lisa_QGKI.config \
-            ../kernel/nethunter-lisa.config
-          grep -E "CONFIG_USB_G_HID|CONFIG_USB_CONFIGFS_F_HID|CONFIG_ATH9K_HTC|CONFIG_RT2800USB|CONFIG_RTL8187|CONFIG_RTL8192CU|CONFIG_SYSVIPC|CONFIG_CFG80211|CONFIG_MAC80211" out/.config
+            ${{ inputs.use_fragment == 'true' && '../kernel/nethunter-lisa.config' || '/dev/null' }}
+          grep -E "CONFIG_USB_G_HID|CONFIG_USB_CONFIGFS_F_HID|CONFIG_ATH9K_HTC|CONFIG_RT2800USB|CONFIG_RTL8187|CONFIG_RTL8192CU|CONFIG_SYSVIPC|CONFIG_CFG80211|CONFIG_MAC80211" out/.config || echo "(fragment symbols absent - pristine bisect?)"
 
       - name: Build kernel (Image + modules + dtb)
         run: |
