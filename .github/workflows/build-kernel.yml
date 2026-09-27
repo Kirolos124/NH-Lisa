@@ -177,6 +177,7 @@ jobs:
           python3 - "$GITHUB_WORKSPACE/out/Image" boot.img "$OUT_IMG" <<'PYEOF'
           import struct, sys
           img, ref, outp = sys.argv[1], sys.argv[2], sys.argv[3]
+          PART = 201326592  # BOARD_BOOTIMAGE_PARTITION_SIZE (lisa)
           k = open(img, 'rb').read()
           r = open(ref, 'rb').read()
           assert r[:8] == b'ANDROID!', 'ref not boot img'
@@ -187,17 +188,28 @@ jobs:
           struct.pack_into('<I', hdr, 8, len(k))
           ko = 4096 + ((rk + 4095) // 4096) * 4096
           assert r[ko:ko+2] == b'\x1f\x8b', 'stock ramdisk not gzip?!'
+          page = lambda n: ((n + 4095) // 4096) * 4096
+          # vbmeta blob + footer template from stock
+          ftr = bytearray(r[-64:])
+          assert bytes(ftr[:4]) == b'AVBf', 'no AVB footer?!'
+          voff = struct.unpack('>Q', bytes(ftr[20:28]))[0]
+          vsz = struct.unpack('>Q', bytes(ftr[28:36]))[0]
+          assert r[voff:voff+4] == b'AVB0', 'vbmeta magic?!'
+          vblob = r[voff:voff+vsz]
+          # layout: header + kernel + ramdisk, vbmeta page-aligned after
           blob = bytes(hdr) + b'\0' * (4096 - 1580) + k
           blob += b'\0' * ((4096 - (len(k) % 4096)) % 4096)
           blob += r[ko:ko+rr]
-          # Append stock tail (zero padding + AVB vbmeta footer) so the layout
-          # matches stock exactly. Without it the APatch app's internal
-          # magiskboot segfaults on repack (exit 139). Footer lands at EOF,
-          # padding absorbs the kernel size difference. APatch fixes up AVB
-          # itself during patching (proven: stock+APatch boots on orange).
-          blob += r[ko+rr:]
+          voff_new = page(len(blob))
+          blob += b'\0' * (voff_new - len(blob)) + vblob
+          # footer with corrected offsets, image padded to partition size
+          struct.pack_into('>Q', ftr, 12, voff_new)  # original_image_size
+          struct.pack_into('>Q', ftr, 20, voff_new)  # vbmeta_offset
+          assert len(blob) + 64 <= PART, f'image too big: {len(blob)+64} > {PART}'
+          blob += b'\0' * (PART - 64 - len(blob)) + bytes(ftr)
+          assert len(blob) == PART, f'size {len(blob)} != {PART}'
           open(outp, 'wb').write(blob)
-          print(f'wrote {outp}: kernel={len(k)} ramdisk={rr} total={len(blob)}')
+          print(f'wrote {outp}: kernel={len(k)} ramdisk={rr} vbmeta@{voff_new} total={len(blob)}')
           PYEOF
           test -f "$OUT_IMG" || { echo "FATAL: repack produced no output"; exit 1; }
           # Verify final image kernel is raw ARM64 (would hang at splash otherwise)
