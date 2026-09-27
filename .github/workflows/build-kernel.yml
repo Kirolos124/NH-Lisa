@@ -143,6 +143,8 @@ jobs:
           ls "$GITHUB_WORKSPACE/out/modules"
           cp out/arch/arm64/boot/Image "$GITHUB_WORKSPACE/out/"
           cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/out/"
+          # Save exact resolved config for forensics/diffing
+          cp out/.config "$GITHUB_WORKSPACE/out/NetHunter-lisa.config.used"
 
       - name: Download reference boot.img (direct)
         run: |
