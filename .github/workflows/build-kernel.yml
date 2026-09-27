@@ -18,7 +18,7 @@ on:
       use_fragment:
         description: 'Include NetHunter fragment (false = pristine stock-equivalent bisect build)'
         required: false
-        default: 'false'
+        default: 'true'
 
 env:
   OUT_BASENAME: NetHunter-Kernel-lisa-lineage-23.2-20260922-Android16
