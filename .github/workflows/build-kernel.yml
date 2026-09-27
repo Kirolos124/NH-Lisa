@@ -54,16 +54,15 @@ jobs:
           git status --short | head -5
           df -h "$GITHUB_WORKSPACE" | tail -2
 
-      - name: Clone Clang prebuilt (AOSP Android 16 host, like stock clang 21)
+      - name: Clone Clang prebuilt (AOSP Android 16 host, clang-r563880c like stock)
         run: |
           git clone --depth 1 --branch android-16.0.0_r4 \
             https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
             clang-aosp
-          # repo holds versioned clang-*/ dirs; use the newest
-          NEWEST=$(ls -d clang-aosp/clang-* | sort -V | tail -1)
-          echo "Using: $NEWEST"
-          ln -sfn "$PWD/$NEWEST/bin" clang-cc
-          ls clang-cc/ | head
+          # clang-stable is NOT the real toolchain dir; pin the exact
+          # revision stock was built with ("based on r563880c")
+          test -x clang-aosp/clang-r563880c/bin/clang
+          ln -sfn "$PWD/clang-aosp/clang-r563880c/bin" clang-cc
           clang-cc/clang --version | head -2
 
       - name: Merge defconfig chain + NetHunter fragment
