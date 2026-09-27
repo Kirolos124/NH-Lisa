@@ -234,8 +234,20 @@ jobs:
           cd ak3 && rm -rf .git && zip -r9 "$GITHUB_WORKSPACE/out/${{ env.OUT_BASENAME }}-AnyKernel3.zip" . -x "*.git*"
           ls -lh "$GITHUB_WORKSPACE/out"
 
-      - name: Upload artifacts
+      - name: Upload boot image (small, for flashing/testing)
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.OUT_BASENAME }}
-          path: out/
+          name: ${{ env.OUT_BASENAME }}-boot
+          path: |
+            out/boot-patched-*.img
+            out/Image
+            out/Image.gz
+            out/NetHunter-lisa.config.used
+
+      - name: Upload modules + AnyKernel3 (full, for WiFi drivers)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.OUT_BASENAME }}-full
+          path: |
+            out/modules/
+            out/*AnyKernel3.zip
